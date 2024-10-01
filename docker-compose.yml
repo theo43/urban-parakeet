@@ -1,0 +1,101 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:latest
+    container_name: mongodb_up
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_DATABASE=up_db
+      - MONGO_INITDB_ROOT_USERNAME=root
+      - MONGO_INITDB_ROOT_PASSWORD=password  
+    volumes:
+      # - mongo_data:/data/db
+      - ./init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js
+    networks:
+      - app-network
+
+  data_ingestion:
+    build:
+      context: data_ingestion/
+      dockerfile: Dockerfile
+    container_name: data_ingestion_api
+    ports:
+      - "8000:8000"
+    depends_on:
+      - mongodb
+    networks:
+      - app-network
+    volumes:
+      - ./data_ingestion/main.py:/app/main.py
+    environment:
+      - DATABASE_NAME=up_db
+      - COLLECTION_NAME_DOCUMENTS=documents
+      - COLLECTION_NAME_SUMMARIES=summaries
+      - DATA_PROCESSING_SERVICE_URL=http://data_processing:8001/process
+      - MONGO_URI=mongodb://root:password@mongodb_up:27017/
+
+  data_processing:
+    build: 
+      context: data_processing/
+      dockerfile: Dockerfile
+    container_name: data_processing_api
+    ports:
+      - "8001:8001"
+    depends_on:
+      - mongodb
+    networks:
+      - app-network
+    volumes:
+      - ./data_processing/main.py:/app/main.py
+    environment:
+      - DATABASE_NAME=up_db
+      - COLLECTION_NAME_DOCUMENTS=documents
+      - COLLECTION_NAME_SUMMARIES=summaries
+      - MONGO_URI=mongodb://root:password@mongodb_up:27017/
+      - SUMMARIZER_SERVICE_URL=http://summarizer_api:8003/infer/
+
+  # llm:
+  #   build:
+  #     context: llm/
+  #     dockerfile: Dockerfile
+  #   container_name: llm_api
+  #   ports:
+  #     - "8002:8002"
+  #   depends_on:
+  #     - mongodb
+  #   networks:
+  #     - app-network
+  #   environment:
+  #     - DATABASE_NAME=up_db
+  #     - COLLECTION_NAME_DOCUMENTS=documents
+  #     - COLLECTION_NAME_SUMMARIES=summaries
+  #     - MONGO_URI=mongodb://root:password@mongodb_up:27017/
+  
+  summarizer:
+    build:
+      context: summarizer/
+      dockerfile: Dockerfile
+    container_name: summarizer_api
+    ports:
+      - "8003:8003"
+    depends_on:
+      - mongodb
+    networks:
+      - app-network
+    volumes:
+      - ./summarizer/main.py:/app/main.py
+    environment:
+      - DATABASE_NAME=up_db
+      - COLLECTION_NAME_DOCUMENTS=documents
+      - COLLECTION_NAME_SUMMARIES=summaries
+      - MONGO_URI=mongodb://root:password@mongodb_up:27017/
+
+volumes:
+  mongo_data:
+    driver: local
+
+networks:
+  app-network:
+    driver: bridge
